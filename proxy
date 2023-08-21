@@ -2,47 +2,42 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-interface TokenContract {
-    function transfer(address to, uint256 value) external returns (bool);
-    function approve(address spender, uint256 value) external returns (bool);
-    function transferFrom(address from, address to, uint256 value) external returns (bool);
-    function balanceOf(address account) external view returns (uint256);
-}
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
 
+contract TokenProxy is Ownable {
+    IERC20 public tokenContract;  // The ERC20 token contract
 
-contract TokenClaimProxy {
-    address public owner;
-    TokenContract public tokenContract;
+    mapping(address => uint256) public claimedTokens;
 
-    mapping(address => uint256) public userBalances;
+    event TokensClaimed(address indexed user, uint256 amount);
 
     constructor(address _tokenAddress) {
-        owner = msg.sender;
-        tokenContract = TokenContract(_tokenAddress);
+        tokenContract = IERC20(_tokenAddress);
     }
 
-    modifier onlyOwner() {
-        require(msg.sender == owner, "Only the owner can perform this action");
-        _;
+    // Function to allow the contract owner to set initial user balances
+    function setInitialBalances(address[] calldata users, uint256[] calldata balances) external onlyOwner {
+        require(users.length == balances.length, "Input arrays must have the same length");
+
+        for (uint256 i = 0; i < users.length; i++) {
+            claimedTokens[users[i]] = balances[i];
+        }
     }
 
-    function setUserBalance(address user, uint256 amount) external onlyOwner {
-        userBalances[user] = amount;
-    }
 
-    function claimTokens() external {
-        uint256 amountToClaim = userBalances[msg.sender];
-        require(amountToClaim > 0, "No tokens to claim");
-
-        userBalances[msg.sender] = 0; // Reset user balance
-
-        bool success = tokenContract.transfer(msg.sender, amountToClaim);
-        require(success, "Token transfer failed");
-    }
-
-    function changeOwner(address newOwner) external onlyOwner {
-        require(newOwner != address(0), "Invalid new owner address");
-        owner = newOwner;
-    }
+    
+    // Function to allow users to claim their tokens
+function claimTokens() external {
+    uint256 userBalance = claimedTokens[msg.sender];
+    require(userBalance > 0, "No tokens to claim");
+    
+    claimedTokens[msg.sender] = 0;  // Reset user's claimed balance
+    
+    tokenContract.transfer(msg.sender, userBalance);  // Transfer tokens to the user
+    emit TokensClaimed(msg.sender, userBalance);
 }
 
+
+  
+}
