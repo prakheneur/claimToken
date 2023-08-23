@@ -2,42 +2,60 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "@openzeppelin/contracts/access/Ownable.sol";
+import "./MyTokenStorage.sol";
+//import "./MyTokenLogic.sol";
 
-contract TokenProxy is Ownable {
-    IERC20 public tokenContract;  // The ERC20 token contract
+contract MyTokenProxy is MyTokenStorage {
+    address public implementation;
+    address public owner;
 
-    mapping(address => uint256) public claimedTokens;
-
-    event TokensClaimed(address indexed user, uint256 amount);
-
-    constructor(address _tokenAddress) {
-        tokenContract = IERC20(_tokenAddress);
+    constructor(address logicAddress) {
+        implementation = logicAddress;
+        owner = msg.sender;
     }
 
-    // Function to allow the contract owner to set initial user balances
-    function setInitialBalances(address[] calldata users, uint256[] calldata balances) external onlyOwner {
-        require(users.length == balances.length, "Input arrays must have the same length");
+    modifier onlyOwner() {
+        require(msg.sender == owner, "Not the owner");
+        _;
+    }
 
-        for (uint256 i = 0; i < users.length; i++) {
-            claimedTokens[users[i]] = balances[i];
+    function upgradeImplementation(address newImplementation) external onlyOwner {
+        require(newImplementation != address(0), "Invalid implementation address");
+        implementation = newImplementation;
+    }
+
+    fallback() external payable {
+        address _impl = implementation;
+        assembly {
+            calldatacopy(0, 0, calldatasize())
+            let result := delegatecall(gas(), _impl, 0, calldatasize(), 0, 0)
+            returndatacopy(0, 0, returndatasize())
+            switch result
+            case 0 {
+                revert(0, returndatasize())
+            }
+            default {
+                return(0, returndatasize())
+            }
         }
     }
 
+    // Function to transfer ERC20 tokens using the proxy
+    function transferTokens(address to, uint256 amount) external onlyOwner {
+        address _impl = implementation;
+        // Encode the function call and arguments for the transfer function
+        bytes memory data = abi.encodeWithSignature("transfer(address,uint256)", to, amount);
 
-    
-    // Function to allow users to claim their tokens
-function claimTokens() external {
-    uint256 userBalance = claimedTokens[msg.sender];
-    require(userBalance > 0, "No tokens to claim");
-    
-    claimedTokens[msg.sender] = 0;  // Reset user's claimed balance
-    
-    tokenContract.transfer(msg.sender, userBalance);  // Transfer tokens to the user
-    emit TokensClaimed(msg.sender, userBalance);
-}
-
-
-  
+        assembly {
+            let result := delegatecall(gas(), _impl, add(data, 0x20), mload(data), 0, 0)
+            returndatacopy(0, 0, returndatasize())
+            switch result
+            case 0 {
+                revert(0, returndatasize())
+            }
+            default {
+                return(0, returndatasize())
+            }
+        }
+    }
 }
